@@ -75,6 +75,42 @@ kube-vip (or DNS, or an external LB) is still needed for external
 
 ## Quick start
 
+### Option 1: download a release binary (no Go required)
+
+Pre-built static binaries (`linux/amd64`, `linux/arm64`; no glibc
+dependency) are published on the
+[releases page](https://github.com/cooloo9871/local-apiserver-lb/releases).
+On the worker node:
+
+```console
+$ curl -sLO https://github.com/cooloo9871/local-apiserver-lb/releases/latest/download/local-apiserver-lb-linux-amd64
+$ curl -sLO https://github.com/cooloo9871/local-apiserver-lb/releases/latest/download/SHA256SUMS
+$ sha256sum -c SHA256SUMS --ignore-missing
+local-apiserver-lb-linux-amd64: OK
+$ sudo install -m 0755 local-apiserver-lb-linux-amd64 /usr/local/bin/local-apiserver-lb
+```
+
+(Pin a specific version by replacing `latest/download` with
+`download/v0.1.0`.)
+
+The systemd unit and configuration templates live in this repository's
+`deploy/` directory — fetch them alongside the binary:
+
+```console
+$ base=https://raw.githubusercontent.com/cooloo9871/local-apiserver-lb/main/deploy
+$ sudo curl -sL -o /etc/systemd/system/apiserver-lb.service $base/apiserver-lb.service
+$ sudo curl -sL -o /etc/default/apiserver-lb $base/apiserver-lb.env
+$ sudo mkdir -p /etc/systemd/system/kubelet.service.d
+$ sudo curl -sL -o /etc/systemd/system/kubelet.service.d/20-apiserver-lb.conf \
+    $base/kubelet.service.d/20-apiserver-lb.conf
+$ sudo systemctl daemon-reload
+```
+
+Then edit `/etc/default/apiserver-lb` (set `--servers` to your control
+plane addresses) and `sudo systemctl enable --now apiserver-lb`.
+
+### Option 2: build from source
+
 Requirements: Go ≥ 1.22 to build; systemd on the target node.
 
 ```console
