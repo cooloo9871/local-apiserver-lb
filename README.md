@@ -106,8 +106,27 @@ $ sudo curl -sL -o /etc/systemd/system/kubelet.service.d/20-apiserver-lb.conf \
 $ sudo systemctl daemon-reload
 ```
 
-Then edit `/etc/default/apiserver-lb` (set `--servers` to your control
-plane addresses) and `sudo systemctl enable --now apiserver-lb`.
+Edit `/etc/default/apiserver-lb` and set `--servers` to your control
+plane addresses, then enable and start the service (`enable --now` also
+makes it start on boot):
+
+```console
+$ sudo vi /etc/default/apiserver-lb
+$ sudo systemctl enable --now apiserver-lb
+```
+
+Verify before pointing kubelet at it:
+
+```console
+$ systemctl is-active apiserver-lb            # active
+$ curl -s http://127.0.0.1:9099/readyz        # ok (needs --metrics-listen)
+$ curl -k https://127.0.0.1:6443/version      # apiserver version JSON
+$ journalctl -u apiserver-lb -n 20            # no unhealthy messages
+```
+
+Starting the service has no effect on the cluster by itself — kubelet
+keeps using its current endpoint until you switch it (see
+[docs/migration.md](docs/migration.md)).
 
 ### Option 2: build from source
 
