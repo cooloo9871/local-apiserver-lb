@@ -1,0 +1,55 @@
+# systemd unit for local-apiserver-lb: a node-local TCP load balancer in
+# front of the Kubernetes control plane apiservers.
+#
+# Install as /etc/systemd/system/apiserver-lb.service and configure via
+# /etc/default/apiserver-lb (see deploy/apiserver-lb.env).
+
+[Unit]
+Description=Node-local TCP load balancer for Kubernetes apiservers
+Documentation=https://github.com/cooloo9871/local-apiserver-lb
+# kubelet connects to 127.0.0.1:6443; make sure the LB is up first.
+Before=kubelet.service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+EnvironmentFile=-/etc/default/apiserver-lb
+ExecStart=/usr/local/bin/local-apiserver-lb $APISERVER_LB_OPTS
+Restart=always
+RestartSec=2s
+
+# --- Hardening ---------------------------------------------------------
+# The listen port (6443) is unprivileged, so no root is needed at all.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+LimitNOFILE=65536
+
+# ProtectSystem=strict mounts the whole filesystem read-only for the
+# service; the cluster CA used by "--ca-file" lives under
+# /etc/kubernetes/pki, so keep that subtree explicitly visible
+# (read-only). The leading "-" makes the path optional so the service
+# also starts on nodes that do not have it (e.g. --insecure-skip-verify
+# or tcp health-check mode).
+#
+# NOTE: this does not bypass file permissions. The service runs as a
+# dynamic non-root user, so the CA file itself must be world-readable
+# (kubeadm's default for ca.crt is 0644). If your pki directory is
+# root-only (0700), either relax it for ca.crt or switch to
+# LoadCredential=ca.crt:/etc/kubernetes/pki/ca.crt and point --ca-file
+# at ${CREDENTIALS_DIRECTORY}/ca.crt.
+ReadOnlyPaths=-/etc/kubernetes/pki
+
+[Install]
+WantedBy=multi-user.target
