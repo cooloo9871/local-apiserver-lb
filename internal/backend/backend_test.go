@@ -187,3 +187,58 @@ func TestConcurrentTrackDrainReport(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestTrackedConnForwardsCloseWrite(t *testing.T) {
+	// The proxy needs CloseWrite for TCP half-close; the tracking wrapper
+	// must not hide it. net.Pipe has no CloseWrite, so use a real TCP pair.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		accepted <- c
+	}()
+
+	client, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	server := <-accepted
+	defer server.Close()
+
+	b := New("a:1")
+	tracked := b.Track(client)
+
+	cw, ok := tracked.(interface{ CloseWrite() error })
+	if !ok {
+		t.Fatal("tracked conn does not expose CloseWrite")
+	}
+	if err := cw.CloseWrite(); err != nil {
+		t.Fatalf("CloseWrite returned error: %v", err)
+	}
+
+	// The peer must observe EOF...
+	buf := make([]byte, 1)
+	if _, err := server.Read(buf); err == nil {
+		t.Error("peer read succeeded after CloseWrite, want EOF")
+	}
+	// ...but the connection must still be readable in the other direction.
+	if _, err := server.Write([]byte("x")); err != nil {
+		t.Fatalf("peer write after CloseWrite failed: %v", err)
+	}
+	if _, err := tracked.Read(buf); err != nil {
+		t.Errorf("read after CloseWrite failed: %v; half-close broke the reverse direction", err)
+	}
+	// CloseWrite must not untrack the connection: it is still alive.
+	if got := b.ActiveConns(); got != 1 {
+		t.Errorf("ActiveConns = %d after CloseWrite, want 1", got)
+	}
+}

@@ -4,6 +4,7 @@
 package backend
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -147,4 +148,14 @@ func (tc *trackedConn) Close() error {
 		tc.backend.mu.Unlock()
 	})
 	return tc.Conn.Close()
+}
+
+// CloseWrite forwards TCP half-close to the underlying connection, which
+// the embedding would otherwise hide. The connection stays tracked: it is
+// still alive in the read direction.
+func (tc *trackedConn) CloseWrite() error {
+	if cw, ok := tc.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return fmt.Errorf("underlying connection %T does not support CloseWrite", tc.Conn)
 }
