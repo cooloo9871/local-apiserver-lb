@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Test
+        run: make test vet
+
+      - name: Build release binaries
+        run: |
+          make build-all VERSION=${GITHUB_REF_NAME}
+          cd dist && sha256sum local-apiserver-lb-linux-* > SHA256SUMS
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/local-apiserver-lb-linux-amd64 \
+            dist/local-apiserver-lb-linux-arm64 \
+            dist/SHA256SUMS
