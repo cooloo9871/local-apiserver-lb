@@ -208,13 +208,24 @@ For each worker `w1`:
    (Workers have `/etc/kubernetes/pki/ca.crt` from `kubeadm join`; drop
    `--ca-file` or use `--health-check-mode tcp` if yours do not.)
 
-2. **Verify the balancer before touching kubelet:**
+2. **Verify the balancer before touching kubelet.** Wait at least
+   `health-interval × fall` (6 s by default) after starting the service
+   before judging the results: backends start optimistically healthy, so
+   a dead `--servers` entry only shows up after the first fall window.
 
    ```console
-   w1$ systemctl is-active apiserver-lb                     # active
-   w1$ curl -s http://127.0.0.1:9299/readyz                 # ok
-   w1$ curl -k https://127.0.0.1:6443/version               # apiserver JSON
-   w1$ journalctl -u apiserver-lb -n 20                     # no unhealthy spam
+   w1$ systemctl is-active apiserver-lb              # active
+   w1$ curl -sS http://127.0.0.1:9299/readyz         # ok (a connection error
+                                                     # here means --metrics-listen
+                                                     # is missing or wrong)
+   w1$ curl -sS http://127.0.0.1:9299/metrics | grep backend_healthy
+   # every configured server must report 1; a 0 means that backend is
+   # down or unreachable — stop and fix it before proceeding
+   w1$ curl -sSk https://127.0.0.1:6443/version      # apiserver version JSON.
+   # On clusters with --anonymous-auth=false this returns a 401 Status
+   # object instead — that is fine: either response comes from a real
+   # apiserver and proves proxying works end to end.
+   w1$ sudo journalctl -u apiserver-lb -n 20         # no unhealthy messages
    ```
 
 3. **Back up, then switch kubelet:**

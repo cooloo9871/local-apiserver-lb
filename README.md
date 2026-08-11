@@ -115,18 +115,16 @@ $ sudo vi /etc/default/apiserver-lb
 $ sudo systemctl enable --now apiserver-lb
 ```
 
-Verify before pointing kubelet at it:
+Quick smoke test — the full pre-cutover checklist lives in
+[docs/migration.md](docs/migration.md) (Phase 4, step 2); run that
+before switching kubelet:
 
 ```console
-$ systemctl is-active apiserver-lb            # active
-$ curl -s http://127.0.0.1:9299/readyz        # ok (needs --metrics-listen)
-$ curl -k https://127.0.0.1:6443/version      # apiserver version JSON
-$ journalctl -u apiserver-lb -n 20            # no unhealthy messages
+$ curl -sSk https://127.0.0.1:6443/version
+# apiserver version JSON. On clusters with --anonymous-auth=false this
+# returns a 401 Status object instead — either way the response comes
+# from a real apiserver, which proves proxying works.
 ```
-
-Starting the service has no effect on the cluster by itself — kubelet
-keeps using its current endpoint until you switch it (see
-[docs/migration.md](docs/migration.md)).
 
 ### Option 2: build from source
 
@@ -144,11 +142,8 @@ On a worker node:
 $ sudo ./deploy/install.sh bin/local-apiserver-lb
 $ sudo vi /etc/default/apiserver-lb    # set --servers to your CP addresses
 $ sudo systemctl enable --now apiserver-lb
-$ curl -k https://127.0.0.1:6443/version   # answered by a real apiserver
+$ curl -sSk https://127.0.0.1:6443/version   # answered by a real apiserver
 ```
-
-Do **not** point kubelet at `127.0.0.1:6443` yet — follow
-[docs/migration.md](docs/migration.md) for the full, safe procedure.
 
 Or run it directly:
 
@@ -157,6 +152,11 @@ $ local-apiserver-lb \
     --servers 10.0.0.11:6443,10.0.0.12:6443,10.0.0.13:6443 \
     --metrics-listen 127.0.0.1:9299
 ```
+
+Whichever option you choose: starting the service has no effect on the
+cluster by itself — kubelet keeps using its current endpoint until you
+deliberately switch it. Do **not** point kubelet at `127.0.0.1:6443`
+until you have followed [docs/migration.md](docs/migration.md).
 
 ## Configuration
 
