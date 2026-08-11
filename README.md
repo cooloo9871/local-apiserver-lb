@@ -224,13 +224,31 @@ drained. Changes to any other key are ignored until restart. Without
 
 ## Metrics
 
-> **Choosing the metrics port**: pick a localhost port nothing else on
-> the node uses. In particular do **not** use `9099` — Calico's Felix
-> binds its health endpoint to `127.0.0.1:9099` on every node, and since
-> this service starts before kubelet it wins the port, leaving
-> calico-node crash-looping with `bind: address already in use`. Other
-> ports to avoid: `9100` (node-exporter), `10248–10260`
-> (kubelet/kube-proxy). The examples use `9299`.
+### Choosing the metrics port
+
+Pick a localhost port nothing else on the node uses. Because this
+service starts **before** kubelet (and therefore before any CNI
+daemonset), it always wins the bind — the colliding CNI pod is the one
+that crash-loops with `bind: address already in use`, which is easy to
+misdiagnose as a CNI problem.
+
+The examples use `9299`, chosen against the default host-bound TCP
+ports of the common CNIs (verified against upstream docs, 2026-08):
+
+| CNI | Default host-bound TCP ports |
+|---|---|
+| **Calico** | `179` (BGP), `5473` (Typha), `9098` (Typha health), **`9099` (Felix health)**, `9091` (Felix/Typha Prometheus metrics, off by default) |
+| **Canal** | the Calico Felix ports above + Flannel below |
+| **Flannel** | none — VXLAN is UDP `8472`, healthz is disabled by default (`--healthz-port=0`) |
+| **Cilium** | `4240` (health), `4244`/`4245` (Hubble), `4250`/`4251` (auth/SPIRE), `6060`–`6062` (pprof), `9878`/`9879` (envoy/agent health), `9890`–`9893` (gops), `9901` (envoy admin), `9962`–`9965` (Prometheus metrics) |
+
+`9299` collides with none of them. Also avoid `9100` (node-exporter),
+`9153` (CoreDNS), and `10248`–`10260` (kubelet/kube-proxy). Whatever
+you pick, check the node first:
+
+```console
+$ ss -tlnp | grep 9299    # must be empty before you enable the service
+```
 
 With `--metrics-listen 127.0.0.1:9299`:
 
