@@ -119,7 +119,7 @@ Verify before pointing kubelet at it:
 
 ```console
 $ systemctl is-active apiserver-lb            # active
-$ curl -s http://127.0.0.1:9099/readyz        # ok (needs --metrics-listen)
+$ curl -s http://127.0.0.1:9299/readyz        # ok (needs --metrics-listen)
 $ curl -k https://127.0.0.1:6443/version      # apiserver version JSON
 $ journalctl -u apiserver-lb -n 20            # no unhealthy messages
 ```
@@ -155,7 +155,7 @@ Or run it directly:
 ```console
 $ local-apiserver-lb \
     --servers 10.0.0.11:6443,10.0.0.12:6443,10.0.0.13:6443 \
-    --metrics-listen 127.0.0.1:9099
+    --metrics-listen 127.0.0.1:9299
 ```
 
 ## Configuration
@@ -176,7 +176,7 @@ Flags take precedence over the optional YAML config file (`--config`).
 | `--ca-file` | *(empty)* | CA bundle for health-check TLS. When set, the certificate **chain** is verified but the **hostname is not** — backends are dialed by IP, and kubeadm apiserver certs do not necessarily contain every control plane IP. Typically `/etc/kubernetes/pki/ca.crt`. |
 | `--insecure-skip-verify` | `true` | Skip TLS verification on health checks (the probe only proves liveness). Automatically disabled when `--ca-file` is set; combining `--ca-file` with an explicit `true` is an error. |
 | `--keepalive-period` | `30s` | TCP keepalive on both legs; `0` disables. |
-| `--metrics-listen` | *(empty)* | Metrics/health HTTP address (e.g. `127.0.0.1:9099`); empty disables. |
+| `--metrics-listen` | *(empty)* | Metrics/health HTTP address (e.g. `127.0.0.1:9299`); empty disables. |
 | `--log-level` | `info` | `debug`, `info`, `warn`, `error`. Per-connection events are logged only at `debug`. |
 | `--log-format` | `text` | `text` or `json` (to stderr, for journald). |
 | `--shutdown-grace` | `10s` | Grace period for in-flight connections on SIGTERM/SIGINT. |
@@ -224,7 +224,15 @@ drained. Changes to any other key are ignored until restart. Without
 
 ## Metrics
 
-With `--metrics-listen 127.0.0.1:9099`:
+> **Choosing the metrics port**: pick a localhost port nothing else on
+> the node uses. In particular do **not** use `9099` — Calico's Felix
+> binds its health endpoint to `127.0.0.1:9099` on every node, and since
+> this service starts before kubelet it wins the port, leaving
+> calico-node crash-looping with `bind: address already in use`. Other
+> ports to avoid: `9100` (node-exporter), `10248–10260`
+> (kubelet/kube-proxy). The examples use `9299`.
+
+With `--metrics-listen 127.0.0.1:9299`:
 
 | Endpoint | Meaning |
 |---|---|
@@ -334,7 +342,7 @@ In order:
 2. `ss -tlnp | grep 6443` — is something else (e.g. a stray apiserver on
    a control plane node — this service is for **workers only**) holding
    the port?
-3. `curl -sS http://127.0.0.1:9099/readyz` — 503 means no healthy
+3. `curl -sS http://127.0.0.1:9299/readyz` — 503 means no healthy
    backends: check network reachability to the control planes and the
    `/readyz 401` issue above.
 4. Startup fails with a *loopback* error: your `--servers` contains an

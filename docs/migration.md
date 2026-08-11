@@ -201,7 +201,7 @@ For each worker `w1`:
    w1$ sudo ./deploy/install.sh local-apiserver-lb
    w1$ sudo vi /etc/default/apiserver-lb
    # APISERVER_LB_OPTS="--servers=10.0.0.11:6443,10.0.0.12:6443,10.0.0.13:6443 \
-   #   --ca-file=/etc/kubernetes/pki/ca.crt --metrics-listen=127.0.0.1:9099"
+   #   --ca-file=/etc/kubernetes/pki/ca.crt --metrics-listen=127.0.0.1:9299"
    w1$ sudo systemctl enable --now apiserver-lb
    ```
 
@@ -212,7 +212,7 @@ For each worker `w1`:
 
    ```console
    w1$ systemctl is-active apiserver-lb                     # active
-   w1$ curl -s http://127.0.0.1:9099/readyz                 # ok
+   w1$ curl -s http://127.0.0.1:9299/readyz                 # ok
    w1$ curl -k https://127.0.0.1:6443/version               # apiserver JSON
    w1$ journalctl -u apiserver-lb -n 20                     # no unhealthy spam
    ```
@@ -237,7 +237,7 @@ For each worker `w1`:
    ```console
    $ kubectl wait --for=condition=Ready node/w1 --timeout=120s
    $ kubectl get --raw /api/v1/nodes/w1/proxy/healthz   # kubelet reachable
-   w1$ curl -s http://127.0.0.1:9099/metrics | grep connections_total
+   w1$ curl -s http://127.0.0.1:9299/metrics | grep connections_total
    # connections now flowing through the balancer
    ```
 
@@ -302,7 +302,7 @@ worker:
 1. Find which CP the worker's connections currently go to:
 
    ```console
-   w1$ curl -s http://127.0.0.1:9099/metrics | grep backend_connections
+   w1$ curl -s http://127.0.0.1:9299/metrics | grep backend_connections
    ```
 
 2. On **that** CP, stop the apiserver the hard way (static pod removal —
@@ -327,7 +327,7 @@ worker:
 
    ```console
    $ kubectl get node w1 -w        # stays Ready throughout
-   w1$ curl -s http://127.0.0.1:9099/metrics | grep backend_connections
+   w1$ curl -s http://127.0.0.1:9299/metrics | grep backend_connections
    # connections now on the surviving CPs
    ```
 
