@@ -95,7 +95,7 @@ $ sudo install -m 0755 local-apiserver-lb-linux-amd64 /usr/local/bin/local-apise
 ```
 
 (Pin a specific version by replacing `latest/download` with
-`download/v0.4.0`.)
+`download/v0.7.0`.)
 
 The systemd unit and configuration templates live in this repository's
 `deploy/` directory — fetch them alongside the binary:
@@ -111,8 +111,20 @@ $ sudo systemctl daemon-reload
 ```
 
 Edit `/etc/default/apiserver-lb` and set `--servers` to your control
-plane addresses, then enable and start the service (`enable --now` also
-makes it start on boot):
+plane addresses. The recommended full configuration also enables
+[dynamic discovery](docs/dynamic-discovery.md) (which needs one unit
+drop-in, see the guide) so control plane changes propagate to workers
+automatically:
+
+```bash
+APISERVER_LB_OPTS="--servers=10.0.0.11:6443,10.0.0.12:6443,10.0.0.13:6443 \
+  --metrics-listen=127.0.0.1:9299 \
+  --discovery-kubeconfig=/etc/kubernetes/kubelet.conf \
+  --state-file=/var/lib/apiserver-lb/servers.json"
+```
+
+Then enable and start the service (`enable --now` also makes it start
+on boot):
 
 ```console
 $ sudo vi /etc/default/apiserver-lb
@@ -321,6 +333,13 @@ Worker join order, for every worker: install the balancer → verify
 `kubeadm join k8s-api.local:6443 ...`. Do not join first and switch
 later; the balancer must be listening before the join contacts
 `127.0.0.1:6443`.
+
+[Dynamic discovery](docs/dynamic-discovery.md) can be configured as
+part of the initial install, before the join: point
+`--discovery-kubeconfig` at `/etc/kubernetes/kubelet.conf` (which does
+not exist yet — discovery stays dormant and activates automatically
+once the join creates it) and add `--state-file` so control plane
+changes never require touching worker configuration again.
 
 ## Migrating from kube-vip
 
