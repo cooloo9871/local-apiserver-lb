@@ -217,12 +217,14 @@ pool — added control planes start receiving traffic, removed ones are
 drained. The static `--servers` list remains the bootstrap seed and
 fallback; empty or invalid discovered lists are never applied.
 
-Credentials are either a dedicated ServiceAccount that can only `get`
-that one object (`deploy/discovery-rbac.yaml`, recommended) or the
-node's own `kubelet.conf`. Add `--state-file` to persist the discovered
-list across restarts, so even a seed list whose every address has been
-decommissioned cannot strand a restarted balancer. Setup, trade-offs,
-and troubleshooting: [docs/dynamic-discovery.md](docs/dynamic-discovery.md).
+Credentials come from the node's own `kubelet.conf` (the Node
+authorizer allows kubelets to read `endpoints`), so there is no
+cluster-side setup at all; the service needs a small unit drop-in to
+run as root with read-only access to the kubelet credentials. Add
+`--state-file` to persist the discovered list across restarts, so even
+a seed list whose every address has been decommissioned cannot strand a
+restarted balancer. Setup and troubleshooting:
+[docs/dynamic-discovery.md](docs/dynamic-discovery.md).
 
 ## Metrics
 

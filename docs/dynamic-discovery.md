@@ -7,6 +7,12 @@ of ready apiservers, maintained by the apiservers themselves — and
 reconciles the pool. Adding or removing a control plane node no longer
 requires touching every worker's configuration.
 
+The credentials source is the node's own kubelet identity
+(`/etc/kubernetes/kubelet.conf`): the Node authorizer allows kubelets
+to read `endpoints`, so no cluster-side RBAC setup is needed at all,
+and the balancer re-reads the referenced client certificate on every
+request, so kubelet certificate rotation is picked up automatically.
+
 ## How it works
 
 - Every `--discovery-interval` (default `30s`) the balancer GETs
@@ -15,9 +21,8 @@ requires touching every worker's configuration.
   field is deliberately ignored: requests never depend on an external
   endpoint and can never loop back through the balancer itself.
 - The classic Endpoints resource is used instead of EndpointSlice on
-  purpose: the Node authorizer allows kubelet credentials to read it,
-  so both a dedicated ServiceAccount and the node's own kubelet.conf
-  work as the credentials source.
+  purpose: it is what the Node authorizer permits kubelet credentials
+  to read.
 - Discovered backends are added; vanished backends are removed and
   their in-flight connections drained.
 
@@ -32,9 +37,52 @@ Safety guards, in order:
 3. **Every discovered list passes the same validation as `--servers`**
    (loopback rejection, listen-address self-forwarding, syntax). A
    rejected list is logged and ignored.
-4. **A missing kubeconfig is not an error.** Point it at
-   `kubelet.conf` on a not-yet-joined worker and discovery stays
-   dormant until the file appears after `kubeadm join`.
+4. **A missing kubeconfig is not an error.** On a not-yet-joined
+   worker, `kubelet.conf` does not exist; discovery stays dormant and
+   activates automatically once `kubeadm join` creates it.
+
+## Setup
+
+`kubelet.conf` and the client certificate it references
+(`/var/lib/kubelet/pki/kubelet-client-current.pem`) are root-only, so
+the service must run as root with read-only access to those paths — a
+deliberate trade-off: the balancer holds the node's API identity in
+exchange for zero cluster-side setup. Install the unit drop-in
+alongside the service (before or after join, either works):
+
+```console
+$ sudo mkdir -p /etc/systemd/system/apiserver-lb.service.d
+$ sudo tee /etc/systemd/system/apiserver-lb.service.d/10-kubelet-creds.conf << 'EOF'
+[Service]
+DynamicUser=no
+User=root
+ReadOnlyPaths=/etc/kubernetes /var/lib/kubelet/pki
+EOF
+```
+
+Add the flags to `/etc/default/apiserver-lb` (see below for
+`--state-file`):
+
+```bash
+APISERVER_LB_OPTS="--servers=... --metrics-listen=127.0.0.1:9299 \
+  --discovery-kubeconfig=/etc/kubernetes/kubelet.conf \
+  --state-file=/var/lib/apiserver-lb/servers.json"
+```
+
+```console
+$ sudo systemctl daemon-reload
+$ sudo systemctl enable --now apiserver-lb   # or restart if already running
+$ sudo journalctl -u apiserver-lb | grep discovery
+```
+
+Expected log progression:
+
+- before `kubeadm join`: `discovery is waiting for a usable kubeconfig`
+  — normal, the file does not exist yet
+- after join (within one interval): `discovery activated`
+- on every control plane change: `discovery updated backend servers`,
+  followed by `backend added by discovery` / `backend removed by
+  discovery` lines
 
 ## Surviving restarts: `--state-file`
 
@@ -48,18 +96,12 @@ discovery could never bootstrap ("restart amnesia").
 `--state-file` closes that gap, the same way K3s/RKE2 persist their
 balancer state:
 
-```bash
-APISERVER_LB_OPTS="... --discovery-kubeconfig=... \
-  --state-file=/var/lib/apiserver-lb/servers.json"
-```
-
 - Every applied discovery update is written atomically to the file.
 - At startup, a valid state file **supersedes** `--servers` (logged as
   `restored backend servers from state file`); a missing or invalid one
   falls back to the seed. The same validation as `--servers` applies.
 - The shipped unit sets `StateDirectory=apiserver-lb`, so
-  `/var/lib/apiserver-lb` exists and is writable even under
-  `DynamicUser` sandboxing.
+  `/var/lib/apiserver-lb` exists and is writable.
 - Requires discovery: without it the list never changes and the flag is
   rejected at startup.
 
@@ -68,99 +110,7 @@ plane turnover becomes cosmetic rather than required — though keeping
 it roughly current is still good hygiene for the day the state file is
 lost.
 
-## Option A — dedicated ServiceAccount (recommended)
-
-Works with the hardened systemd unit as shipped. One-time cluster
-setup:
-
-```console
-$ kubectl apply -f https://raw.githubusercontent.com/cooloo9871/local-apiserver-lb/refs/heads/main/deploy/discovery-rbac.yaml
-```
-
-(Or `kubectl apply -f deploy/discovery-rbac.yaml` from a checkout of
-this repository.)
-
-Mint the kubeconfig (run anywhere with cluster-admin):
-
-```console
-$ TOKEN=$(kubectl -n kube-system get secret apiserver-lb-discovery-token \
-    -o jsonpath='{.data.token}' | base64 -d)
-$ CA=$(kubectl -n kube-system get secret apiserver-lb-discovery-token \
-    -o jsonpath='{.data.ca\.crt}')
-$ cat > discovery.kubeconfig << EOF
-apiVersion: v1
-kind: Config
-clusters:
-- cluster:
-    certificate-authority-data: ${CA}
-    server: https://unused.invalid:6443
-  name: discovery
-contexts:
-- context: {cluster: discovery, user: discovery}
-  name: discovery
-current-context: discovery
-users:
-- name: discovery
-  user:
-    token: ${TOKEN}
-EOF
-```
-
-(The `server` field is required by the format but never contacted.)
-
-Install on each worker and enable:
-
-```console
-w1$ sudo mkdir -p /etc/apiserver-lb
-w1$ sudo cp discovery.kubeconfig /etc/apiserver-lb/discovery.kubeconfig
-w1$ sudo chmod 0644 /etc/apiserver-lb/discovery.kubeconfig
-```
-
-Mode `0644` is a deliberate trade-off: the service runs as a dynamic
-non-root user and must be able to read the file, and the token inside
-can only `get` the apiserver address list (see the Role). If even that
-is unacceptable, use `LoadCredential=` in a unit drop-in instead.
-
-Add to `/etc/default/apiserver-lb`:
-
-```bash
-APISERVER_LB_OPTS="--servers=... --metrics-listen=127.0.0.1:9299 \
-  --discovery-kubeconfig=/etc/apiserver-lb/discovery.kubeconfig"
-```
-
-```console
-w1$ sudo systemctl restart apiserver-lb
-w1$ sudo journalctl -u apiserver-lb | grep discovery
-# level=INFO msg="dynamic backend discovery enabled" ...
-# level=INFO msg="discovery activated" ...
-```
-
-## Option B — reuse the node's kubelet credentials
-
-`--discovery-kubeconfig=/etc/kubernetes/kubelet.conf` works because the
-Node authorizer allows kubelets to read `endpoints`, and the balancer
-re-reads the referenced client certificate on every request, so kubelet
-certificate rotation is picked up automatically. No cluster-side setup
-at all.
-
-The catch is on the node side: `kubelet.conf` references
-`/var/lib/kubelet/pki/kubelet-client-current.pem`, which is root-only
-(`0600`). The hardened unit's `DynamicUser=yes` cannot read it. To use
-this option you must weaken the unit in a drop-in, e.g.:
-
-```ini
-# /etc/systemd/system/apiserver-lb.service.d/10-kubelet-creds.conf
-[Service]
-DynamicUser=no
-User=root
-ReadOnlyPaths=/etc/kubernetes /var/lib/kubelet/pki
-```
-
-Weigh this consciously: the balancer then runs as root and holds the
-node's API identity. Option A keeps the sandbox intact and is the
-better default.
-
-## Verifying and testing failover of the list itself
+## Verifying a control plane change end to end
 
 ```console
 # Watch a control plane addition propagate (default: within 30s):
@@ -168,8 +118,9 @@ w1$ sudo journalctl -u apiserver-lb -f | grep discovery
 # msg="discovery updated backend servers" servers="[...]"
 # msg="backend added by discovery" backend=10.0.0.14:6443
 
-# Metrics reflect the new backend immediately after:
+# Metrics and the state file reflect it immediately after:
 w1$ curl -sS http://127.0.0.1:9299/metrics | grep backend_healthy
+w1$ sudo cat /var/lib/apiserver-lb/servers.json
 ```
 
 Remember the interaction with `kubeadm`: a control plane removed with
@@ -181,12 +132,16 @@ already drained it before discovery catches up — discovery keeps the
 
 ## Troubleshooting
 
-- `discovery is waiting for a usable kubeconfig` — the file is missing
-  or unparsable; fine before `kubeadm join`, otherwise check the path.
+- `discovery is waiting for a usable kubeconfig` — fine before
+  `kubeadm join`. After join it means the file is unreadable: check
+  that the `10-kubelet-creds.conf` drop-in is installed and was applied
+  (`ps -o user= -C local-apiserver-lb` must print `root`; re-run
+  `systemctl daemon-reload && systemctl restart apiserver-lb` after
+  adding it).
 - `discovery fetch failed` (debug level) — no backend answered; check
-  RBAC (`kubectl auth can-i get endpoints/kubernetes -n default --as
-  system:serviceaccount:kube-system:apiserver-lb-discovery`).
+  network reachability to the control planes.
 - `discovered server list rejected` — the list failed validation; the
   log line includes the reason. The current backends stay in place.
-- Status 401/403 from fetch — token expired or RBAC missing; recreate
-  the Secret and kubeconfig.
+- Status 401/403 from fetch — the kubelet client certificate is invalid
+  or the node was removed from the cluster; check
+  `openssl x509 -in /var/lib/kubelet/pki/kubelet-client-current.pem -noout -dates`.
