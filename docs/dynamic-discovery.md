@@ -43,8 +43,11 @@ Works with the hardened systemd unit as shipped. One-time cluster
 setup:
 
 ```console
-$ kubectl apply -f deploy/discovery-rbac.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/cooloo9871/local-apiserver-lb/refs/heads/main/deploy/discovery-rbac.yaml
 ```
+
+(Or `kubectl apply -f deploy/discovery-rbac.yaml` from a checkout of
+this repository.)
 
 Mint the kubeconfig (run anywhere with cluster-admin):
 
