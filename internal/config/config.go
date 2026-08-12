@@ -38,6 +38,10 @@ type Config struct {
 	DiscoveryKubeconfig string
 	DiscoveryInterval   time.Duration
 
+	// StateFile persists discovery's applied server list across
+	// restarts. Only meaningful together with DiscoveryKubeconfig.
+	StateFile string
+
 	// explicit records flag names the user set on the command line,
 	// used for config-file precedence and conflict detection.
 	explicit map[string]bool
@@ -82,6 +86,8 @@ func Parse(args []string) (*Config, error) {
 		"kubeconfig for dynamic backend discovery from the default/kubernetes Endpoints object (empty disables)")
 	fs.DurationVar(&cfg.DiscoveryInterval, "discovery-interval", 30*time.Second,
 		"how often to refresh the backend list when discovery is enabled")
+	fs.StringVar(&cfg.StateFile, "state-file", "",
+		"persist the discovered backend list here and restore it at startup (requires --discovery-kubeconfig)")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err

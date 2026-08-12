@@ -68,6 +68,11 @@ func (c *Config) Validate(lookup LookupFunc) error {
 	// Note: c.DiscoveryKubeconfig is deliberately NOT checked for
 	// existence. Pre-join workers point it at kubelet.conf, which only
 	// appears after kubeadm join; discovery waits for it at runtime.
+
+	if c.StateFile != "" && c.DiscoveryKubeconfig == "" {
+		return fmt.Errorf("--state-file requires --discovery-kubeconfig: without discovery " +
+			"the backend list never changes, so there is nothing to persist")
+	}
 	if c.KeepalivePeriod < 0 {
 		return fmt.Errorf("--keepalive-period must be >= 0, got %v", c.KeepalivePeriod)
 	}

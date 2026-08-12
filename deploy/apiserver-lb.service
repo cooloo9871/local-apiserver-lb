@@ -36,6 +36,11 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 LimitNOFILE=65536
 
+# Writable state directory (/var/lib/apiserver-lb) for --state-file,
+# created and owned by the (dynamic) service user; harmless when the
+# flag is unused.
+StateDirectory=apiserver-lb
+
 # ProtectSystem=strict mounts the whole filesystem read-only for the
 # service; the cluster CA used by "--ca-file" lives under
 # /etc/kubernetes/pki, so keep that subtree explicitly visible

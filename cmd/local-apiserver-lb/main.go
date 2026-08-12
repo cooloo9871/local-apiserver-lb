@@ -64,9 +64,36 @@ func run(args []string) int {
 		"config_file", cfg.ConfigFile,
 		"discovery_kubeconfig", cfg.DiscoveryKubeconfig,
 		"discovery_interval", cfg.DiscoveryInterval,
+		"state_file", cfg.StateFile,
 	)
 
-	pool, err := backend.NewPool(cfg.Servers, cfg.Balance)
+	// The state file, when present and valid, supersedes the static
+	// seed: it records the cluster membership discovery last applied,
+	// which survives control plane turnover that would strand a stale
+	// --servers list after a restart.
+	servers := cfg.Servers
+	if cfg.StateFile != "" {
+		restored, err := discovery.LoadState(cfg.StateFile)
+		switch {
+		case err == nil:
+			if verr := config.ValidateServers(restored, cfg.Listen, nil); verr != nil {
+				logger.Warn("ignoring state file: restored server list failed validation",
+					"state_file", cfg.StateFile, "error", verr)
+			} else {
+				servers = restored
+				logger.Info("restored backend servers from state file",
+					"state_file", cfg.StateFile, "servers", servers)
+			}
+		case os.IsNotExist(err):
+			logger.Info("no state file yet; starting from --servers",
+				"state_file", cfg.StateFile)
+		default:
+			logger.Warn("state file unreadable; starting from --servers",
+				"state_file", cfg.StateFile, "error", err)
+		}
+	}
+
+	pool, err := backend.NewPool(servers, cfg.Balance)
 	if err != nil {
 		logger.Error("failed to build backend pool", "error", err)
 		return 1
@@ -103,7 +130,8 @@ func run(args []string) int {
 			Validate: func(servers []string) error {
 				return config.ValidateServers(servers, cfg.Listen, nil)
 			},
-			Logger: logger,
+			Logger:    logger,
+			StatePath: cfg.StateFile,
 		})
 		go poller.Run(ctx)
 		logger.Info("dynamic backend discovery enabled",

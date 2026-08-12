@@ -43,6 +43,10 @@ type Options struct {
 	// caller wires the same validation used for --servers.
 	Validate func(servers []string) error
 	Logger   *slog.Logger
+	// StatePath, when non-empty, persists every applied server list so
+	// a restart can resume from the cluster's current membership even
+	// if the static seed list has gone stale. Load it with LoadState.
+	StatePath string
 }
 
 // Poller periodically refreshes the pool's backend set.
@@ -210,6 +214,12 @@ func (p *Poller) apply(addrs []string) {
 
 	added, removed := p.pool.SetAddrs(addrs)
 	p.opts.Logger.Info("discovery updated backend servers", "servers", addrs)
+	if p.opts.StatePath != "" {
+		if err := saveState(p.opts.StatePath, addrs); err != nil {
+			p.opts.Logger.Warn("failed to persist backend servers to state file",
+				"state_file", p.opts.StatePath, "error", err)
+		}
+	}
 	for _, b := range added {
 		p.opts.Logger.Info("backend added by discovery", "backend", b.Addr())
 	}

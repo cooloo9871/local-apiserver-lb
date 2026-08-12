@@ -37,6 +37,38 @@ Safety guards, in order:
    `kubelet.conf` on a not-yet-joined worker and discovery stays
    dormant until the file appears after `kubeadm join`.
 
+## Surviving restarts: `--state-file`
+
+Discovery updates only the in-memory pool; the static `--servers` seed
+in your configuration never changes. After a restart the balancer
+starts from that seed again — fine while at least one seed address is
+still a control plane, but if the entire control plane set has been
+replaced over time, a restart would boot from all-dead seeds and
+discovery could never bootstrap ("restart amnesia").
+
+`--state-file` closes that gap, the same way K3s/RKE2 persist their
+balancer state:
+
+```bash
+APISERVER_LB_OPTS="... --discovery-kubeconfig=... \
+  --state-file=/var/lib/apiserver-lb/servers.json"
+```
+
+- Every applied discovery update is written atomically to the file.
+- At startup, a valid state file **supersedes** `--servers` (logged as
+  `restored backend servers from state file`); a missing or invalid one
+  falls back to the seed. The same validation as `--servers` applies.
+- The shipped unit sets `StateDirectory=apiserver-lb`, so
+  `/var/lib/apiserver-lb` exists and is writable even under
+  `DynamicUser` sandboxing.
+- Requires discovery: without it the list never changes and the flag is
+  rejected at startup.
+
+With the state file enabled, refreshing the seed list after control
+plane turnover becomes cosmetic rather than required — though keeping
+it roughly current is still good hygiene for the day the state file is
+lost.
+
 ## Option A — dedicated ServiceAccount (recommended)
 
 Works with the hardened systemd unit as shipped. One-time cluster

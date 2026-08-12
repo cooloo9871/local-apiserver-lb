@@ -236,3 +236,34 @@ func TestDiscoveryKubeconfigMayNotExistYet(t *testing.T) {
 		t.Errorf("missing discovery kubeconfig rejected at startup: %v", err)
 	}
 }
+
+func TestParseStateFile(t *testing.T) {
+	cfg, err := Parse([]string{
+		"--servers", "a:1",
+		"--discovery-kubeconfig", "/etc/kubernetes/kubelet.conf",
+		"--state-file", "/var/lib/apiserver-lb/servers.json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.StateFile != "/var/lib/apiserver-lb/servers.json" {
+		t.Errorf("StateFile = %q", cfg.StateFile)
+	}
+}
+
+func TestValidateStateFileRequiresDiscovery(t *testing.T) {
+	cfg, err := Parse([]string{
+		"--servers", "10.0.0.1:6443",
+		"--state-file", "/var/lib/apiserver-lb/servers.json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verr := cfg.Validate(nil)
+	if verr == nil {
+		t.Fatal("--state-file without --discovery-kubeconfig accepted, want error")
+	}
+	if !strings.Contains(verr.Error(), "discovery") {
+		t.Errorf("error %q does not explain the discovery requirement", verr)
+	}
+}

@@ -188,6 +188,7 @@ Flags take precedence over the optional YAML config file (`--config`).
 | `--config` | *(empty)* | Optional YAML config file. |
 | `--discovery-kubeconfig` | *(empty)* | Enable [dynamic backend discovery](docs/dynamic-discovery.md): credentials for reading the `default/kubernetes` Endpoints object. The file may not exist yet at startup (e.g. a pre-join `kubelet.conf`); discovery waits for it. |
 | `--discovery-interval` | `30s` | How often to refresh the backend list when discovery is enabled. |
+| `--state-file` | *(empty)* | Persist discovery's applied backend list (e.g. `/var/lib/apiserver-lb/servers.json`) and restore it at startup, so restarts survive complete control plane turnover. Requires `--discovery-kubeconfig`. |
 | `--version` | | Print version, commit, and build date, then exit. |
 
 Configuration is validated at startup and the process refuses to run on
@@ -240,8 +241,10 @@ fallback; empty or invalid discovered lists are never applied.
 
 Credentials are either a dedicated ServiceAccount that can only `get`
 that one object (`deploy/discovery-rbac.yaml`, recommended) or the
-node's own `kubelet.conf`. Setup, trade-offs, and troubleshooting:
-[docs/dynamic-discovery.md](docs/dynamic-discovery.md).
+node's own `kubelet.conf`. Add `--state-file` to persist the discovered
+list across restarts, so even a seed list whose every address has been
+decommissioned cannot strand a restarted balancer. Setup, trade-offs,
+and troubleshooting: [docs/dynamic-discovery.md](docs/dynamic-discovery.md).
 
 ## Metrics
 

@@ -344,3 +344,58 @@ func TestDiscoveryStopsOnCancel(t *testing.T) {
 		t.Error("Run did not return after context cancellation")
 	}
 }
+
+func TestDiscoveryPersistsStateOnUpdate(t *testing.T) {
+	f := newFakeAPIServer(t)
+	f.setEndpoints(f.addr, "10.99.0.7:6443")
+
+	statePath := filepath.Join(t.TempDir(), "servers.json")
+	pool := newTestPool(t, f.addr)
+	p := New(pool, Options{
+		KubeconfigPath: writeKubeconfig(t, f),
+		Interval:       20 * time.Millisecond,
+		Timeout:        time.Second,
+		Validate:       func([]string) error { return nil },
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		StatePath:      statePath,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go p.Run(ctx)
+
+	waitFor(t, "state file to be written after update", func() bool {
+		servers, err := LoadState(statePath)
+		if err != nil {
+			return false
+		}
+		found := map[string]bool{}
+		for _, s := range servers {
+			found[s] = true
+		}
+		return found[f.addr] && found["10.99.0.7:6443"]
+	})
+}
+
+func TestDiscoveryDoesNotWriteStateWhenUnchanged(t *testing.T) {
+	f := newFakeAPIServer(t)
+	f.setEndpoints(f.addr) // identical to the seed list
+
+	statePath := filepath.Join(t.TempDir(), "servers.json")
+	pool := newTestPool(t, f.addr)
+	p := New(pool, Options{
+		KubeconfigPath: writeKubeconfig(t, f),
+		Interval:       20 * time.Millisecond,
+		Timeout:        time.Second,
+		Validate:       func([]string) error { return nil },
+		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		StatePath:      statePath,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go p.Run(ctx)
+
+	time.Sleep(100 * time.Millisecond) // several polls, zero changes
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Error("state file written despite no pool change")
+	}
+}
