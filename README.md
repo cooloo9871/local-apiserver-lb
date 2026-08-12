@@ -72,6 +72,10 @@ kube-vip (or DNS, or an external LB) is still needed for external
   never sees the error unless every backend is unreachable.
 - If **all** backends are unhealthy, the balancer degrades to best-effort:
   each connection tries every backend in order, and a warning is logged.
+- The backend list itself can optionally track the cluster: with
+  [dynamic discovery](docs/dynamic-discovery.md) enabled, the balancer
+  reads the `default/kubernetes` Endpoints object through its own
+  backends and reconciles the pool as control planes come and go.
 
 ## Quick start
 
@@ -91,7 +95,7 @@ $ sudo install -m 0755 local-apiserver-lb-linux-amd64 /usr/local/bin/local-apise
 ```
 
 (Pin a specific version by replacing `latest/download` with
-`download/v0.1.0`.)
+`download/v0.4.0`.)
 
 The systemd unit and configuration templates live in this repository's
 `deploy/` directory — fetch them alongside the binary:
@@ -285,6 +289,55 @@ Exported metrics, all labeled `{server="<backend>"}`:
 | `apiserver_lb_dial_errors_total` | counter | failed dials |
 | `apiserver_lb_health_check_failures_total` | counter | failed probes |
 | `apiserver_lb_connections_drained_total` | counter | connections force-closed by draining |
+
+## Installing on a fresh cluster (no kube-vip at all)
+
+Greenfield installs are simpler than migrations: workers go through the
+balancer from their very first second, with no cutover step. The whole
+pattern rests on one decision — **make `controlPlaneEndpoint` a DNS
+name** (say `k8s-api.local`) and let each node resolve it according to
+its role via `/etc/hosts`:
+
+| Node | `/etc/hosts` entry for `k8s-api.local` | Why |
+|---|---|---|
+| first control plane | `127.0.0.1` (before `kubeadm init`) | init needs no pre-existing cluster; the local apiserver answers on loopback |
+| additional control planes | the **first CP's IP** while joining, switch to `127.0.0.1` afterwards | during `kubeadm join --control-plane` the node's own apiserver does not exist yet, and kubeadm's post-discovery calls go to the address embedded in `cluster-info` (= the CPE) — it must resolve to a live apiserver |
+| workers | `127.0.0.1`, set **after** installing and verifying the balancer, **before** `kubeadm join` | the join's TLS bootstrap already flows through the balancer; the generated `kubelet.conf` needs no editing, ever |
+| admin workstations | any control plane IP (or real DNS) | external `kubectl` |
+
+Init the first control plane with:
+
+```yaml
+controlPlaneEndpoint: "k8s-api.local:6443"
+apiServer:
+  certSANs: [127.0.0.1, localhost]   # optional but useful, see below
+```
+
+kubeadm adds the CPE host to the apiserver certificate SANs
+automatically, so TLS works everywhere without touching certificates.
+The optional `127.0.0.1`/`localhost` SANs enable local debugging
+(`curl https://localhost:6443`) — and are **required** if your CNI
+replaces kube-proxy and needs a direct apiserver address:
+
+```console
+# Cilium with kubeProxyReplacement: every node has a working
+# 127.0.0.1:6443 (own apiserver on CPs, this balancer on workers)
+$ kubeadm init ... --skip-phases=addon/kube-proxy
+$ helm install cilium cilium/cilium -n kube-system \
+    --set kubeProxyReplacement=true \
+    --set k8sServiceHost=127.0.0.1 \
+    --set k8sServicePort=6443 ...
+```
+
+Never point `k8sServiceHost` (or anything else cluster-wide) at a
+single control plane IP — that recreates the single point of failure
+this project exists to remove.
+
+Worker join order, for every worker: install the balancer → verify
+(docs/migration.md Phase 4 step 2) → add the `/etc/hosts` entry →
+`kubeadm join k8s-api.local:6443 ...`. Do not join first and switch
+later; the balancer must be listening before the join contacts
+`127.0.0.1:6443`.
 
 ## Migrating from kube-vip
 
