@@ -182,6 +182,8 @@ Flags take precedence over the optional YAML config file (`--config`).
 | `--shutdown-grace` | `10s` | Grace period for in-flight connections on SIGTERM/SIGINT. |
 | `--allow-non-loopback` | `false` | Allow binding to a non-loopback address. Understand the exposure before using this. |
 | `--config` | *(empty)* | Optional YAML config file. |
+| `--discovery-kubeconfig` | *(empty)* | Enable [dynamic backend discovery](docs/dynamic-discovery.md): credentials for reading the `default/kubernetes` Endpoints object. The file may not exist yet at startup (e.g. a pre-join `kubelet.conf`); discovery waits for it. |
+| `--discovery-interval` | `30s` | How often to refresh the backend list when discovery is enabled. |
 | `--version` | | Print version, commit, and build date, then exit. |
 
 Configuration is validated at startup and the process refuses to run on
@@ -221,6 +223,21 @@ The new list is validated first; a bad list is rejected and the current
 backends stay in place. Removed backends have their in-flight connections
 drained. Changes to any other key are ignored until restart. Without
 `--config`, SIGHUP logs a warning and does nothing.
+
+### Dynamic backend discovery
+
+With `--discovery-kubeconfig` the balancer keeps the backend list in
+sync with the cluster automatically, RKE2-style: it periodically reads
+the `default/kubernetes` Endpoints object (where the apiservers publish
+their own addresses) through its current backends, and reconciles the
+pool — added control planes start receiving traffic, removed ones are
+drained. The static `--servers` list remains the bootstrap seed and
+fallback; empty or invalid discovered lists are never applied.
+
+Credentials are either a dedicated ServiceAccount that can only `get`
+that one object (`deploy/discovery-rbac.yaml`, recommended) or the
+node's own `kubelet.conf`. Setup, trade-offs, and troubleshooting:
+[docs/dynamic-discovery.md](docs/dynamic-discovery.md).
 
 ## Metrics
 
@@ -382,11 +399,11 @@ In order:
 
 ## Known limitations
 
-- **The backend list is static** (flags or config file + SIGHUP). Adding
-  or removing a control plane means updating every worker's
-  configuration. A future version may watch the `default/kubernetes`
-  EndpointSlice to discover backends dynamically, as RKE2 does; the
-  internal `Pool.SetAddrs` reconciliation is the intended seam for it.
+- **The backend list is static by default** (flags or config file +
+  SIGHUP). Enable [dynamic discovery](docs/dynamic-discovery.md) with
+  `--discovery-kubeconfig` to follow control plane changes
+  automatically; the static list is still required as the bootstrap
+  seed and fallback.
 - **The balancer is a per-node single point of failure.** The blast
   radius is one node, and systemd (`Restart=always`, `RestartSec=2s`)
   restores it within seconds.

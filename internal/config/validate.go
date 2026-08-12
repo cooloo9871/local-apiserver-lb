@@ -59,11 +59,15 @@ func (c *Config) Validate(lookup LookupFunc) error {
 		{"health-timeout", c.HealthTimeout},
 		{"dial-timeout", c.DialTimeout},
 		{"shutdown-grace", c.ShutdownGrace},
+		{"discovery-interval", c.DiscoveryInterval},
 	} {
 		if d.val <= 0 {
 			return fmt.Errorf("--%s must be > 0, got %v", d.name, d.val)
 		}
 	}
+	// Note: c.DiscoveryKubeconfig is deliberately NOT checked for
+	// existence. Pre-join workers point it at kubelet.conf, which only
+	// appears after kubeadm join; discovery waits for it at runtime.
 	if c.KeepalivePeriod < 0 {
 		return fmt.Errorf("--keepalive-period must be >= 0, got %v", c.KeepalivePeriod)
 	}

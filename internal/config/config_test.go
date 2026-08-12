@@ -180,3 +180,59 @@ func TestParseErrorMentionsFlag(t *testing.T) {
 		t.Errorf("error %q does not mention the offending flag", err)
 	}
 }
+
+func TestParseDiscoveryDefaults(t *testing.T) {
+	cfg, err := Parse([]string{"--servers", "a:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DiscoveryKubeconfig != "" {
+		t.Errorf("DiscoveryKubeconfig = %q, want empty (disabled)", cfg.DiscoveryKubeconfig)
+	}
+	if cfg.DiscoveryInterval != 30*time.Second {
+		t.Errorf("DiscoveryInterval = %v, want 30s", cfg.DiscoveryInterval)
+	}
+}
+
+func TestParseDiscoveryFlags(t *testing.T) {
+	cfg, err := Parse([]string{
+		"--servers", "a:1",
+		"--discovery-kubeconfig", "/etc/kubernetes/kubelet.conf",
+		"--discovery-interval", "10s",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DiscoveryKubeconfig != "/etc/kubernetes/kubelet.conf" {
+		t.Errorf("DiscoveryKubeconfig = %q", cfg.DiscoveryKubeconfig)
+	}
+	if cfg.DiscoveryInterval != 10*time.Second {
+		t.Errorf("DiscoveryInterval = %v", cfg.DiscoveryInterval)
+	}
+}
+
+func TestValidateDiscoveryInterval(t *testing.T) {
+	cfg, err := Parse([]string{"--servers", "10.0.0.1:6443", "--discovery-interval", "0s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(nil); err == nil {
+		t.Error("discovery-interval=0 accepted, want error")
+	}
+}
+
+func TestDiscoveryKubeconfigMayNotExistYet(t *testing.T) {
+	// Unlike --ca-file, the discovery kubeconfig is allowed to be
+	// missing at startup: pre-join workers point it at kubelet.conf,
+	// which only appears after kubeadm join.
+	cfg, err := Parse([]string{
+		"--servers", "10.0.0.1:6443",
+		"--discovery-kubeconfig", "/nonexistent/kubelet.conf",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(nil); err != nil {
+		t.Errorf("missing discovery kubeconfig rejected at startup: %v", err)
+	}
+}

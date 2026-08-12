@@ -32,6 +32,12 @@ type Config struct {
 	ConfigFile         string
 	ShowVersion        bool
 
+	// DiscoveryKubeconfig enables dynamic backend discovery from the
+	// default/kubernetes Endpoints object when non-empty. The file may
+	// legitimately not exist yet at startup (pre-join kubelet.conf).
+	DiscoveryKubeconfig string
+	DiscoveryInterval   time.Duration
+
 	// explicit records flag names the user set on the command line,
 	// used for config-file precedence and conflict detection.
 	explicit map[string]bool
@@ -72,6 +78,10 @@ func Parse(args []string) (*Config, error) {
 	fs.DurationVar(&cfg.ShutdownGrace, "shutdown-grace", 10*time.Second, "grace period for in-flight connections on shutdown")
 	fs.StringVar(&cfg.ConfigFile, "config", "", "optional YAML config file")
 	fs.BoolVar(&cfg.ShowVersion, "version", false, "print version and exit")
+	fs.StringVar(&cfg.DiscoveryKubeconfig, "discovery-kubeconfig", "",
+		"kubeconfig for dynamic backend discovery from the default/kubernetes Endpoints object (empty disables)")
+	fs.DurationVar(&cfg.DiscoveryInterval, "discovery-interval", 30*time.Second,
+		"how often to refresh the backend list when discovery is enabled")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err

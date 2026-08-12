@@ -19,6 +19,7 @@ import (
 
 	"github.com/cooloo9871/local-apiserver-lb/internal/backend"
 	"github.com/cooloo9871/local-apiserver-lb/internal/config"
+	"github.com/cooloo9871/local-apiserver-lb/internal/discovery"
 	"github.com/cooloo9871/local-apiserver-lb/internal/health"
 	"github.com/cooloo9871/local-apiserver-lb/internal/metrics"
 	"github.com/cooloo9871/local-apiserver-lb/internal/proxy"
@@ -61,6 +62,8 @@ func run(args []string) int {
 		"metrics_listen", cfg.MetricsListen,
 		"shutdown_grace", cfg.ShutdownGrace,
 		"config_file", cfg.ConfigFile,
+		"discovery_kubeconfig", cfg.DiscoveryKubeconfig,
+		"discovery_interval", cfg.DiscoveryInterval,
 	)
 
 	pool, err := backend.NewPool(cfg.Servers, cfg.Balance)
@@ -91,6 +94,21 @@ func run(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	go checker.Run(ctx)
+
+	if cfg.DiscoveryKubeconfig != "" {
+		poller := discovery.New(pool, discovery.Options{
+			KubeconfigPath: cfg.DiscoveryKubeconfig,
+			Interval:       cfg.DiscoveryInterval,
+			Timeout:        10 * time.Second,
+			Validate: func(servers []string) error {
+				return config.ValidateServers(servers, cfg.Listen, nil)
+			},
+			Logger: logger,
+		})
+		go poller.Run(ctx)
+		logger.Info("dynamic backend discovery enabled",
+			"kubeconfig", cfg.DiscoveryKubeconfig, "interval", cfg.DiscoveryInterval)
+	}
 
 	server := proxy.New(pool, proxy.Options{
 		DialTimeout:     cfg.DialTimeout,

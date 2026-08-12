@@ -1,0 +1,50 @@
+# Minimal RBAC for local-apiserver-lb dynamic backend discovery.
+#
+# Grants exactly one permission: GET on the default/kubernetes Endpoints
+# object, which is where the apiservers publish their own addresses.
+# A leaked token can therefore only reveal the control plane address
+# list, nothing else.
+#
+# Apply, then mint the kubeconfig as described in
+# docs/dynamic-discovery.md.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: apiserver-lb-discovery
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: apiserver-lb-discovery
+  namespace: default
+rules:
+- apiGroups: [""]
+  resources: ["endpoints"]
+  resourceNames: ["kubernetes"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: apiserver-lb-discovery
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: apiserver-lb-discovery
+subjects:
+- kind: ServiceAccount
+  name: apiserver-lb-discovery
+  namespace: kube-system
+---
+# Long-lived token for the ServiceAccount. The token controller
+# populates .data.token and .data."ca.crt" automatically.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apiserver-lb-discovery-token
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: apiserver-lb-discovery
+type: kubernetes.io/service-account-token
