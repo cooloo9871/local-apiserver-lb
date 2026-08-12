@@ -61,7 +61,6 @@ func run(args []string) int {
 		"keepalive_period", cfg.KeepalivePeriod,
 		"metrics_listen", cfg.MetricsListen,
 		"shutdown_grace", cfg.ShutdownGrace,
-		"config_file", cfg.ConfigFile,
 		"discovery_kubeconfig", cfg.DiscoveryKubeconfig,
 		"discovery_interval", cfg.DiscoveryInterval,
 		"state_file", cfg.StateFile,
@@ -164,11 +163,17 @@ func run(args []string) int {
 		}()
 	}
 
+	// SIGHUP must stay handled: its default disposition would kill the
+	// process, and operators habitually send it expecting a reload. The
+	// config-file reload it used to trigger was removed in favor of
+	// dynamic discovery, so it is now an explicit no-op.
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	go func() {
 		for range hup {
-			reloadServers(cfg, pool, logger)
+			logger.Info("SIGHUP ignored: config-file reload was removed; " +
+				"use --discovery-kubeconfig for dynamic backend updates, " +
+				"or restart the service to apply configuration changes")
 		}
 	}()
 
@@ -192,41 +197,6 @@ func run(args []string) int {
 	}
 	logger.Info("shutdown complete")
 	return 0
-}
-
-// reloadServers handles SIGHUP: it re-reads only the server list from the
-// config file, validates it, reconciles the pool, and drains connections
-// on backends that were removed. All other settings stay as loaded at
-// startup.
-func reloadServers(cfg *config.Config, pool *backend.Pool, logger *slog.Logger) {
-	if cfg.ConfigFile == "" {
-		logger.Warn("SIGHUP received but no --config file is in use; nothing to reload")
-		return
-	}
-	servers, err := config.LoadServersFromFile(cfg.ConfigFile)
-	if err != nil {
-		logger.Error("SIGHUP reload failed; keeping current backends", "error", err)
-		return
-	}
-	if err := config.ValidateServers(servers, cfg.Listen, nil); err != nil {
-		logger.Error("SIGHUP reload rejected; keeping current backends", "error", err)
-		return
-	}
-
-	added, removed := pool.SetAddrs(servers)
-	if len(added) == 0 && len(removed) == 0 {
-		logger.Info("SIGHUP reload: server list unchanged")
-		return
-	}
-
-	logger.Info("SIGHUP reload applied", "servers", servers)
-	for _, b := range added {
-		logger.Info("backend added", "backend", b.Addr())
-	}
-	for _, b := range removed {
-		drained := b.DrainAll()
-		logger.Info("backend removed", "backend", b.Addr(), "drained_connections", drained)
-	}
 }
 
 // newLogger builds the slog logger from config: text or JSON handler,

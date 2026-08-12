@@ -18,9 +18,8 @@ requires touching every worker's configuration.
   purpose: the Node authorizer allows kubelet credentials to read it,
   so both a dedicated ServiceAccount and the node's own kubelet.conf
   work as the credentials source.
-- Discovered backends are added, vanished backends are removed and
-  their in-flight connections drained — the same behavior as a SIGHUP
-  reload.
+- Discovered backends are added; vanished backends are removed and
+  their in-flight connections drained.
 
 Safety guards, in order:
 

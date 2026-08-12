@@ -163,8 +163,8 @@ func TestHealthyCount(t *testing.T) {
 }
 
 func TestConcurrentCandidatesAndSetAddrs(t *testing.T) {
-	// Exercised under -race: SIGHUP reloads happen while connections are
-	// being routed; the pool must tolerate that concurrency.
+	// Exercised under -race: discovery reloads happen while connections
+	// are being routed; the pool must tolerate that concurrency.
 	p := newTestPool(t, "least-conn", "a:1", "b:1")
 	done := make(chan struct{})
 	go func() {

@@ -80,8 +80,7 @@ func (p *Pool) Candidates() (order []*Backend, degraded bool) {
 // SetAddrs reconciles the backend set against addrs, preserving existing
 // Backend instances (and their state) for retained addresses. It returns
 // the added and removed backends; draining removed ones is the caller's
-// responsibility. This is the entry point used by SIGHUP reloads, and the
-// interface a future dynamic-discovery watcher would call.
+// responsibility. This is the entry point used by dynamic discovery.
 func (p *Pool) SetAddrs(addrs []string) (added, removed []*Backend) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

@@ -22,7 +22,7 @@ type Options struct {
 // gets its own monitor goroutine with its own ticker, so probes are
 // parallel by construction and a slow backend never delays the others.
 // The monitor set is reconciled against the pool every interval, which
-// picks up SIGHUP-driven backend changes.
+// picks up discovery-driven backend changes.
 type Checker struct {
 	pool   *backend.Pool
 	prober Prober

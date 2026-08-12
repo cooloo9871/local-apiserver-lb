@@ -127,7 +127,8 @@ func (c *Config) Validate(lookup LookupFunc) error {
 }
 
 // ValidateServers validates a backend list against the (already validated)
-// listen address. It is used both by Validate and by SIGHUP reloads.
+// listen address. It is used both by Validate and by dynamic discovery
+// before applying a discovered list.
 func ValidateServers(servers []string, listen string, lookup LookupFunc) error {
 	if lookup == nil {
 		lookup = net.LookupIP

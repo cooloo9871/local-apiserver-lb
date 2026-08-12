@@ -1,5 +1,5 @@
-// Package config handles command-line flag parsing, optional YAML config
-// file loading, and validation of the effective configuration.
+// Package config handles command-line flag parsing and validation of
+// the effective configuration.
 package config
 
 import (
@@ -29,7 +29,6 @@ type Config struct {
 	LogFormat          string
 	AllowNonLoopback   bool
 	ShutdownGrace      time.Duration
-	ConfigFile         string
 	ShowVersion        bool
 
 	// DiscoveryKubeconfig enables dynamic backend discovery from the
@@ -53,9 +52,8 @@ func (c *Config) Explicit(name string) bool {
 	return c.explicit[name]
 }
 
-// Parse parses command-line arguments into a Config. If --config is given,
-// the file is loaded and merged with explicit flags taking precedence.
-// Parse does not validate the result; call Validate for that.
+// Parse parses command-line arguments into a Config. Parse does not
+// validate the result; call Validate for that.
 func Parse(args []string) (*Config, error) {
 	cfg := &Config{explicit: make(map[string]bool)}
 
@@ -80,7 +78,6 @@ func Parse(args []string) (*Config, error) {
 	fs.StringVar(&cfg.LogFormat, "log-format", "text", "log format: text or json")
 	fs.BoolVar(&cfg.AllowNonLoopback, "allow-non-loopback", false, "allow binding to a non-loopback address")
 	fs.DurationVar(&cfg.ShutdownGrace, "shutdown-grace", 10*time.Second, "grace period for in-flight connections on shutdown")
-	fs.StringVar(&cfg.ConfigFile, "config", "", "optional YAML config file")
 	fs.BoolVar(&cfg.ShowVersion, "version", false, "print version and exit")
 	fs.StringVar(&cfg.DiscoveryKubeconfig, "discovery-kubeconfig", "",
 		"kubeconfig for dynamic backend discovery from the default/kubernetes Endpoints object (empty disables)")
@@ -100,13 +97,6 @@ func Parse(args []string) (*Config, error) {
 
 	if serversCSV != "" {
 		cfg.Servers = splitServers(serversCSV)
-	}
-
-	if cfg.ConfigFile != "" {
-		known := func(name string) bool { return fs.Lookup(name) != nil }
-		if err := cfg.applyConfigFile(cfg.ConfigFile, fs.Set, known); err != nil {
-			return nil, err
-		}
 	}
 
 	return cfg, nil

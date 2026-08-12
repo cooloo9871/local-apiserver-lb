@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -265,5 +267,21 @@ func TestValidateStateFileRequiresDiscovery(t *testing.T) {
 	}
 	if !strings.Contains(verr.Error(), "discovery") {
 		t.Errorf("error %q does not explain the discovery requirement", verr)
+	}
+}
+
+func TestConfigFileFlagRemoved(t *testing.T) {
+	// The YAML config file (and its SIGHUP reload) was removed in
+	// v0.6.0: dynamic discovery plus the state file replaced its only
+	// real use case. The flag must now be rejected as unknown so that
+	// stale deployments fail loudly instead of silently ignoring their
+	// config file — even when the file exists and is valid.
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("servers:\n  - 10.0.0.9:6443\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Parse([]string{"--servers", "a:1", "--config", path})
+	if err == nil {
+		t.Fatal("--config accepted, want unknown-flag error")
 	}
 }

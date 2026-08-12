@@ -164,7 +164,12 @@ until you have followed [docs/migration.md](docs/migration.md).
 
 ## Configuration
 
-Flags take precedence over the optional YAML config file (`--config`).
+All configuration is via command-line flags, normally set through
+`APISERVER_LB_OPTS` in `/etc/default/apiserver-lb`. The three-layer
+model for the backend list: `--servers` is the bootstrap seed,
+[dynamic discovery](#dynamic-backend-discovery) tracks the cluster at
+runtime, and `--state-file` carries the discovered list across
+restarts.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -185,7 +190,6 @@ Flags take precedence over the optional YAML config file (`--config`).
 | `--log-format` | `text` | `text` or `json` (to stderr, for journald). |
 | `--shutdown-grace` | `10s` | Grace period for in-flight connections on SIGTERM/SIGINT. |
 | `--allow-non-loopback` | `false` | Allow binding to a non-loopback address. Understand the exposure before using this. |
-| `--config` | *(empty)* | Optional YAML config file. |
 | `--discovery-kubeconfig` | *(empty)* | Enable [dynamic backend discovery](docs/dynamic-discovery.md): credentials for reading the `default/kubernetes` Endpoints object. The file may not exist yet at startup (e.g. a pre-join `kubelet.conf`); discovery waits for it. |
 | `--discovery-interval` | `30s` | How often to refresh the backend list when discovery is enabled. |
 | `--state-file` | *(empty)* | Persist discovery's applied backend list (e.g. `/var/lib/apiserver-lb/servers.json`) and restore it at startup, so restarts survive complete control plane turnover. Requires `--discovery-kubeconfig`. |
@@ -196,38 +200,12 @@ any error (empty server list, malformed `host:port`, loopback loops, a
 server entry equal to the listen address, unreadable `--ca-file`,
 contradictory TLS flags, unresolvable hostnames).
 
-### YAML config file
-
-The config file is a deliberately restricted YAML subset: flat
-`key: value` scalars and string lists (block or flow style), `#`
-comments, optional quotes. Nested mappings, anchors, and multi-line
-strings are not supported. Keys are the flag names:
-
-```yaml
-# /etc/apiserver-lb/config.yaml
-listen: 127.0.0.1:6443
-balance: least-conn
-servers:
-  - 10.0.0.11:6443
-  - 10.0.0.12:6443
-  - 10.0.0.13:6443
-```
-
-### Reloading the server list (SIGHUP)
-
-When running with `--config`, `SIGHUP` re-reads **only** the `servers`
-list — you can add or remove control planes without restarting (and
-without dropping connections to retained backends):
-
-```console
-$ sudo vi /etc/apiserver-lb/config.yaml
-$ sudo systemctl kill -s HUP apiserver-lb
-```
-
-The new list is validated first; a bad list is rejected and the current
-backends stay in place. Removed backends have their in-flight connections
-drained. Changes to any other key are ignored until restart. Without
-`--config`, SIGHUP logs a warning and does nothing.
+> Historical note: versions before v0.6.0 supported a YAML config file
+> (`--config`) with SIGHUP-based server list reloading. Dynamic
+> discovery plus `--state-file` replaced its only real use case, so it
+> was removed. SIGHUP is now an explicit no-op (logged and ignored, so
+> a stray `systemctl kill -s HUP` cannot kill the balancer); apply
+> configuration changes by editing the environment file and restarting.
 
 ### Dynamic backend discovery
 
@@ -455,8 +433,8 @@ In order:
 
 ## Known limitations
 
-- **The backend list is static by default** (flags or config file +
-  SIGHUP). Enable [dynamic discovery](docs/dynamic-discovery.md) with
+- **The backend list is static by default** (the `--servers` flag).
+  Enable [dynamic discovery](docs/dynamic-discovery.md) with
   `--discovery-kubeconfig` to follow control plane changes
   automatically; the static list is still required as the bootstrap
   seed and fallback.
